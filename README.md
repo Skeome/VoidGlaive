@@ -109,7 +109,7 @@ Without these intents enabled in the portal, the bot will crash on startup with 
 
 #### Stoat — Complete your bot's profile
 
-Before running, log into [stt.gg](https://stt.gg), go to `My Bots` and **fully complete its profile** — set an avatar, bio, and banner. Stoat's onboarding check runs at the WebSocket authentication layer, and a bot with an incomplete profile will be rejected with a misleading `InvalidSession` error even if the token is valid.
+Before running, log into [stt.gg](https://stt.gg), go to `My Bots` in your profile settings and **fully complete its profile** — set an avatar, bio, and banner. Stoat's onboarding check runs at the WebSocket authentication layer, and a bot with an incomplete profile will be rejected with a misleading `InvalidSession` error even if the token is valid.
 
 ### 6. Run the bot
 
