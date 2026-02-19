@@ -50,7 +50,7 @@ Both bots share the same `.env` file, virtual environment, and `requirements.txt
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/skeome/VoidGlaive.git
+git clone https://github.com/Skeome/VoidGlaive.git
 cd VoidGlave
 ```
 
