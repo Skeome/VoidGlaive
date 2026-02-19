@@ -1,0 +1,48 @@
+# ====================
+#  Secrets
+# ====================
+.env
+
+# ====================
+#  Bot data directories
+# ====================
+discord/
+stoat/
+
+# ====================
+#  Python
+# ====================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+wheels/
+pip-wheel-metadata/
+
+# ====================
+#  Virtual environments
+# ====================
+.venv/
+venv/
+env/
+ENV/
+
+# ====================
+#  OS / editor noise
+# ====================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
