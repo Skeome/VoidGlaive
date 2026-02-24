@@ -7,7 +7,7 @@ import zoneinfo
 import os
 import sys
 import asyncio
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, cast
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -183,7 +183,9 @@ class AdminBot(commands.Bot):
         role_id = cfg(server_id).get("autorole_id")
         if role_id:
             try:
-                await member.add_role(role_id)
+                current_roles = list(member.role_ids) if member.role_ids else []
+                if role_id not in current_roles:
+                    await member.edit(roles=cast(list, current_roles + [role_id]))
             except Exception as e:
                 print(f"[WARN] Could not assign auto-role: {e}")
 
@@ -284,7 +286,9 @@ async def show_help(ctx: commands.Context):
 **🔨 Moderation**
 `{BOT_PREFIX}kick <@mention|ID> [reason]` — Kick a member
 `{BOT_PREFIX}ban <@mention|ID> [reason]` — Ban a member
-`{BOT_PREFIX}unban <user_id>` — Unban a user by ID
+`{BOT_PREFIX}unban <@mention|ID>` — Unban a user by ID
+`{BOT_PREFIX}mute <@mention|ID> [reason]` — Apply the mute role
+`{BOT_PREFIX}unmute <@mention|ID>` — Remove the mute role
 
 **⚙️ Admin Config**  *(Admin only)*
 `{BOT_PREFIX}set_log_channel <channel_id>` — Set the log channel
@@ -521,6 +525,75 @@ async def unban(ctx: commands.Context, user_id):
 # ==============================================================================
 # --- Commands: Admin Configuration ---
 # ==============================================================================
+
+@bot.command(name="mute")
+@is_admin()
+async def mute(ctx: commands.Context, user_arg, *, reason="No reason provided."):
+    """Apply the mute role to a member. Accepts a mention or user ID. (Admin only)"""
+    uid = parse_user_id(user_arg)
+    if not uid:
+        return await ctx.send("❌ Invalid user — provide a mention or user ID.")
+    sid = get_server_id(ctx)
+    if sid == "DM":
+        return await ctx.send("❌ This command can only be used in a server.")
+    mute_role_id = cfg(sid).get("mute_role_id")
+    if not mute_role_id:
+        return await ctx.send("❌ No mute role configured. Use `set_mute_role` first.")
+    try:
+        server = await bot.fetch_server(sid)
+        member = await server.fetch_member(uid)
+    except Exception:
+        return await ctx.send(f"❌ Could not find member `{uid}` in this server.")
+    try:
+        user = await bot.fetch_user(uid)
+    except Exception:
+        user = None
+    current_roles = list(member.role_ids) if member.role_ids else []
+    if mute_role_id in current_roles:
+        return await ctx.send(f"❌ That member is already muted.")
+    try:
+        await member.edit(roles=cast(list, current_roles + [mute_role_id]))
+    except Exception as e:
+        return await ctx.send(f"❌ Could not mute that member: {e}")
+    display = str(user) if user else uid
+    await ctx.send(f"🔇 **{display}** has been muted.  Reason: {reason}")
+    audit(f"mute  target={uid}  reason={reason!r}", server_id=sid, user_id=str(ctx.author.id))
+    await post_to_log(sid, f"🔇 **Member Muted**\nMember: {display} (`{uid}`)\nMod: {ctx.author}\nReason: {reason}")
+
+
+@bot.command(name="unmute")
+@is_admin()
+async def unmute(ctx: commands.Context, user_arg):
+    """Remove the mute role from a member. Accepts a mention or user ID. (Admin only)"""
+    uid = parse_user_id(user_arg)
+    if not uid:
+        return await ctx.send("❌ Invalid user — provide a mention or user ID.")
+    sid = get_server_id(ctx)
+    if sid == "DM":
+        return await ctx.send("❌ This command can only be used in a server.")
+    mute_role_id = cfg(sid).get("mute_role_id")
+    if not mute_role_id:
+        return await ctx.send("❌ No mute role configured. Use `set_mute_role` first.")
+    try:
+        server = await bot.fetch_server(sid)
+        member = await server.fetch_member(uid)
+    except Exception:
+        return await ctx.send(f"❌ Could not find member `{uid}` in this server.")
+    try:
+        user = await bot.fetch_user(uid)
+    except Exception:
+        user = None
+    current_roles = list(member.role_ids) if member.role_ids else []
+    if mute_role_id not in current_roles:
+        return await ctx.send(f"❌ That member is not muted.")
+    try:
+        await member.edit(roles=cast(list, [r for r in current_roles if r != mute_role_id]))
+    except Exception as e:
+        return await ctx.send(f"❌ Could not unmute that member: {e}")
+    display = str(user) if user else uid
+    await ctx.send(f"🔊 **{display}** has been unmuted.")
+    audit(f"unmute  target={uid}", server_id=sid, user_id=str(ctx.author.id))
+    await post_to_log(sid, f"🔊 **Member Unmuted**\nMember: {display} (`{uid}`)\nMod: {ctx.author}")
 
 @bot.command(name="set_log_channel")
 @is_admin()
