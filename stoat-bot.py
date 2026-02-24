@@ -251,6 +251,8 @@ class AdminBot(commands.Bot):
             await ctx.send(f"❌ Missing required argument: `{str(error)}`")
         elif isinstance(error, commands.BadArgument):
             await ctx.send(f"⚠️ Bad argument: {error}")
+        elif isinstance(error, stoat.NoData):
+            await ctx.send("❌ Could not retrieve that user's data from cache — try again.")
         else:
             print(f"[ERROR] command={ctx.command}  {error}")
             await ctx.send("⚠️ An unexpected error occurred.")
@@ -441,17 +443,23 @@ async def kick(ctx: commands.Context, user_arg, *, reason="No reason provided.")
         member = await server.fetch_member(uid)
     except Exception:
         return await ctx.send(f"❌ Could not find member `{uid}` in this server.")
+    # Fetch user independently so we have it cached before kicking
     try:
-        await member.user.send(f"👢 You have been kicked.\nReason: {reason}")
+        user = await bot.fetch_user(uid)
+    except Exception:
+        user = None
+    try:
+        await (user or member.user).send(f"👢 You have been kicked.\nReason: {reason}")
     except Exception:
         pass
     try:
         await member.kick()
     except Exception:
         return await ctx.send("❌ I don't have permission to kick that member.")
-    await ctx.send(f"👢 **{member.user}** has been kicked.  Reason: {reason}")
+    display = str(user) if user else uid
+    await ctx.send(f"👢 **{display}** has been kicked.  Reason: {reason}")
     audit(f"kick  target={uid}  reason={reason!r}", server_id=sid, user_id=str(ctx.author.id))
-    await post_to_log(sid, f"👢 **Member Kicked**\nMember: {member.user}\nMod: {ctx.author}\nReason: {reason}")
+    await post_to_log(sid, f"👢 **Member Kicked**\nMember: {display} (`{uid}`)\nMod: {ctx.author}\nReason: {reason}")
 
 
 @bot.command(name="ban")
@@ -471,29 +479,43 @@ async def ban(ctx: commands.Context, user_arg, *, reason="No reason provided."):
         member = await server.fetch_member(uid)
     except Exception:
         return await ctx.send(f"❌ Could not find member `{uid}` in this server.")
+    # Fetch user independently so we have it cached before banning
     try:
-        await member.user.send(f"🔨 You have been banned.\nReason: {reason}")
+        user = await bot.fetch_user(uid)
+    except Exception:
+        user = None
+    try:
+        await (user or member.user).send(f"🔨 You have been banned.\nReason: {reason}")
     except Exception:
         pass
     try:
         await member.ban()
     except Exception:
         return await ctx.send("❌ I don't have permission to ban that member.")
-    await ctx.send(f"🔨 **{member.user}** has been banned.  Reason: {reason}")
+    display = str(user) if user else uid
+    await ctx.send(f"🔨 **{display}** has been banned.  Reason: {reason}")
     audit(f"ban  target={uid}  reason={reason!r}", server_id=sid, user_id=str(ctx.author.id))
-    await post_to_log(sid, f"🔨 **Member Banned**\nMember: {member.user}\nMod: {ctx.author}\nReason: {reason}")
+    await post_to_log(sid, f"🔨 **Member Banned**\nMember: {display} (`{uid}`)\nMod: {ctx.author}\nReason: {reason}")
 
 
 @bot.command(name="unban")
 @is_admin()
 async def unban(ctx: commands.Context, user_id):
-    """Unban a user by their ID. (Admin only)"""
-    gid = get_server_id(ctx)
+    """Unban a user by their ID or mention. (Admin only)"""
+    uid = parse_user_id(user_id)
+    if not uid:
+        return await ctx.send("❌ Invalid user — provide a mention or user ID.")
+    sid = get_server_id(ctx)
+    if sid == "DM":
+        return await ctx.send("❌ This command can only be used in a server.")
     try:
-        await ctx.send(f"✅ Unban request sent for user `{user_id}`.")
-        audit(f"unban  target={user_id}", server_id=gid, user_id=str(ctx.author.id))
+        server = await bot.fetch_server(sid)
+        await server.unban(uid)
     except Exception as e:
-        await ctx.send(f"❌ Could not process unban: {e}")
+        return await ctx.send(f"❌ Could not unban `{uid}`: {e}")
+    await ctx.send(f"✅ `{uid}` has been unbanned.")
+    audit(f"unban  target={uid}", server_id=sid, user_id=str(ctx.author.id))
+    await post_to_log(sid, f"✅ **Member Unbanned**\nUser ID: `{uid}`\nMod: {ctx.author}")
 
 
 # ==============================================================================
