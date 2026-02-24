@@ -138,28 +138,27 @@ After the bot is running, use these commands to configure it per-server. Setting
 |---|---|---|
 | `!help` | Everyone | Lists all commands |
 | `!ping` | Everyone | Bot latency |
-| `!botinfo` | Everyone | Bot statistics |
-| `!serverinfo` | Everyone | Server details |
-| `!userinfo [member]` | Everyone | User details including warning count |
 | `!avatar [member]` | Everyone | Displays a member's avatar |
-| `!roleinfo <role>` | Everyone | Role details |
-| `!warn <member> <reason>` | Manage Messages | Issue a warning |
-| `!warnings <member>` | Manage Messages | View a member's warnings |
+| `!botinfo` | Administrator | Bot statistics |
+| `!roleinfo <role>` | Administrator | Role details |
+| `!serverinfo` | Administrator | Server details |
+| `!userinfo [member]` | Administrator | User details including warning count |
+| `!warn <member> <reason>` | Administrator | Issue a warning |
+| `!warnings <member>` | Everyone | View a member's warnings |
 | `!clear_warnings <member>` | Administrator | Remove all warnings |
-| `!kick <member> [reason]` | Kick Members | Kick a member |
-| `!ban <member> [reason]` | Ban Members | Ban a member |
-| `!unban <user_id> [reason]` | Ban Members | Unban by user ID |
-| `!mute <member> [reason]` | Manage Roles | Apply the mute role |
-| `!unmute <member>` | Manage Roles | Remove the mute role |
-| `!purge <amount>` | Manage Messages | Bulk-delete up to 100 messages |
-| `!slowmode <seconds>` | Manage Channels | Set channel slowmode (0 to disable) |
-| `!lock` | Manage Channels | Block `@everyone` from sending messages |
-| `!unlock` | Manage Channels | Restore `@everyone` send permissions |
+| `!kick <member> [reason]` | Administrator | Kick a member |
+| `!ban <member> [reason]` | Administrator | Ban a member |
+| `!unban <user_id> [reason]` | Administrator | Unban by user ID |
+| `!mute <member> [reason]` | Administrator | Apply the mute role |
+| `!unmute <member>` | Administrator | Remove the mute role |
+| `!purge <amount> [member]` | Administrator | Bulk-delete up to 100 messages |
+| `!lock` | Administrator | Block members from sending messages |
+| `!unlock` | Manage Channels | Restore member send permissions |
 | `!set_log_channel <channel>` | Administrator | Set the log channel |
 | `!set_autorole <role>` | Administrator | Set the auto-role on join |
 | `!set_mute_role <role>` | Administrator | Set the muted role |
-| `!status` | Admin | Bot statistics and config summary |
-| `!shutdown` | Admin | Gracefully shut down the bot |
+| `!status` | Administrator | Bot statistics and config summary |
+| `!shutdown` | Administrator | Gracefully shut down the bot |
 
 ---
 
