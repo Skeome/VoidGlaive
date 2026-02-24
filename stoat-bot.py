@@ -18,7 +18,8 @@ load_dotenv()
 # ==============================================================================
 
 BOT_TOKEN  = os.getenv("STOAT_BOT_TOKEN")
-BOT_PREFIX = os.getenv("BOT_PREFIX", "!")
+BOT_PREFIX    = os.getenv("BOT_PREFIX", "!")
+STOAT_CDN_URL = "https://cdn.stoatusercontent.com"
 
 # Comma-separated Stoat User IDs with elevated bot-level admin access
 admin_ids_str  = os.getenv("STOAT_ADMIN_IDS", "")
@@ -272,11 +273,14 @@ async def show_help(ctx: commands.Context):
     """Displays all available commands."""
     help_text = f"""**📖 Command Reference**  (prefix: `{BOT_PREFIX}`)
 
-**ℹ️ Information**
+**ℹ️ Information**  *(Admin only)*
 `{BOT_PREFIX}help` — This message
 `{BOT_PREFIX}ping` — Bot latency
 `{BOT_PREFIX}botinfo` — Bot statistics
 `{BOT_PREFIX}userinfo [@member]` — User details
+`{BOT_PREFIX}serverinfo` — Server details
+`{BOT_PREFIX}roleinfo <role name>` — Role details
+`{BOT_PREFIX}avatar [@member]` — Display a user's avatar
 
 **⚠️ Warnings**
 `{BOT_PREFIX}warn <@mention|ID> <reason>` — Warn a member
@@ -290,6 +294,11 @@ async def show_help(ctx: commands.Context):
 `{BOT_PREFIX}mute <@mention|ID> [reason]` — Apply the mute role
 `{BOT_PREFIX}unmute <@mention|ID>` — Remove the mute role
 
+**🔧 Channel Management**  *(Admin only)*
+`{BOT_PREFIX}purge <amount> [@member]` — Bulk-delete up to 100 messages (optionally filter by member)
+`{BOT_PREFIX}lock` — Block @everyone from sending messages
+`{BOT_PREFIX}unlock` — Restore @everyone send permissions
+
 **⚙️ Admin Config**  *(Admin only)*
 `{BOT_PREFIX}set_log_channel <channel_id>` — Set the log channel
 `{BOT_PREFIX}set_autorole <role_id>` — Set the auto-role on join
@@ -300,12 +309,14 @@ async def show_help(ctx: commands.Context):
 
 
 @bot.command(name="ping")
+@is_admin()
 async def ping(ctx: commands.Context):
     """Check the bot's latency."""
     await ctx.send("🏓 Pong!")
 
 
 @bot.command(name="botinfo")
+@is_admin()
 async def botinfo(ctx: commands.Context):
     """Display statistics about the bot."""
     user_id = bot.user.id if bot.user else "?"
@@ -318,6 +329,7 @@ async def botinfo(ctx: commands.Context):
 
 
 @bot.command(name="userinfo")
+@is_admin()
 async def userinfo(ctx: commands.Context, user_arg=""):
     """Display information about a user. Accepts a mention or user ID (or no argument for yourself)."""
     sid = get_server_id(ctx)
@@ -337,6 +349,61 @@ async def userinfo(ctx: commands.Context, user_arg=""):
         f"👤 **{user}**\n"
         f"ID: `{uid}`\n"
         f"Warnings: {wcount}"
+    )
+
+
+@bot.command(name="serverinfo")
+@is_admin()
+async def serverinfo(ctx: commands.Context):
+    """Display information about this server. (Admin only)"""
+    sid = get_server_id(ctx)
+    if sid == "DM":
+        return await ctx.send("❌ This command can only be used in a server.")
+    try:
+        server = await bot.state.http.get_server(sid)
+    except Exception as e:
+        return await ctx.send(f"❌ Could not fetch server info: {e}")
+    role_count   = len(server.roles) if server.roles else 0
+    description  = server.description or "*(no description)*"
+    owner_mention = f"<@{server.owner_id}>"
+    await ctx.send(
+        f"🏠 **{server.name}**\n"
+        f"ID: `{server.id}`\n"
+        f"Owner: {owner_mention}\n"
+        f"Roles: {role_count}\n"
+        f"Description: {description}"
+    )
+
+
+@bot.command(name="roleinfo")
+@is_admin()
+async def roleinfo(ctx: commands.Context, *, role_name):
+    """Display information about a role by name. (Admin only)"""
+    sid = get_server_id(ctx)
+    if sid == "DM":
+        return await ctx.send("❌ This command can only be used in a server.")
+    try:
+        server = await bot.state.http.get_server(sid)
+    except Exception as e:
+        return await ctx.send(f"❌ Could not fetch server: {e}")
+    if not server.roles:
+        return await ctx.send("❌ This server has no roles.")
+    # Case-insensitive name match
+    query = role_name.strip().lower()
+    role = next((r for r in server.roles.values() if r.name.lower() == query), None)
+    if role is None:
+        # Try partial match as fallback
+        role = next((r for r in server.roles.values() if query in r.name.lower()), None)
+    if role is None:
+        return await ctx.send(f"❌ No role found matching `{role_name}`.")
+    color   = role.color or "*(none)*"
+    hoisted = "Yes" if role.hoist else "No"
+    await ctx.send(
+        f"🏷️ **{role.name}**\n"
+        f"ID: `{role.id}`\n"
+        f"Color: {color}\n"
+        f"Hoisted: {hoisted}\n"
+        f"Rank: {role.rank}"
     )
 
 
@@ -594,6 +661,117 @@ async def unmute(ctx: commands.Context, user_arg):
     await ctx.send(f"🔊 **{display}** has been unmuted.")
     audit(f"unmute  target={uid}", server_id=sid, user_id=str(ctx.author.id))
     await post_to_log(sid, f"🔊 **Member Unmuted**\nMember: {display} (`{uid}`)\nMod: {ctx.author}")
+
+
+# ==============================================================================
+# --- Commands: Channel Management ---
+# ==============================================================================
+
+@bot.command(name="purge")
+@is_admin()
+async def purge(ctx: commands.Context, amount, user_arg=""):
+    """Bulk-delete up to 100 messages. Optionally filter by member. (Admin only)"""
+    try:
+        count = int(amount)
+    except ValueError:
+        return await ctx.send("❌ Amount must be a number.")
+    if not 1 <= count <= 100:
+        return await ctx.send("❌ Amount must be between 1 and 100.")
+    sid = get_server_id(ctx)
+    if sid == "DM":
+        return await ctx.send("❌ This command can only be used in a server.")
+    # Resolve optional target user
+    target_uid = None
+    if user_arg:
+        target_uid = parse_user_id(user_arg)
+        if not target_uid:
+            return await ctx.send("❌ Invalid user — provide a mention or user ID.")
+    channel_id = ctx.message.channel_id
+    # Fetch more messages than requested when filtering so we can hit the count
+    fetch_limit = count if not target_uid else min(count * 5, 100)
+    try:
+        messages = await bot.state.http.get_messages(channel_id, limit=fetch_limit)
+    except Exception as e:
+        return await ctx.send(f"❌ Could not fetch messages: {e}")
+    if target_uid:
+        messages = [m for m in messages if str(m.author_id) == target_uid][:count]
+    if not messages:
+        return await ctx.send("❌ No messages found to delete.")
+    ids = [m.id for m in messages]
+    try:
+        if len(ids) == 1:
+            await bot.state.http.delete_message(channel_id, ids[0])
+        else:
+            await bot.state.http.delete_messages(channel_id, ids)
+    except Exception as e:
+        return await ctx.send(f"❌ Could not delete messages: {e}")
+    target_note = f" from <@{target_uid}>" if target_uid else ""
+    await ctx.send(f"🗑️ Deleted {len(ids)} message(s){target_note}.", silent=True)
+    audit(f"purge  count={len(ids)}  target={target_uid or 'all'}", server_id=sid, user_id=str(ctx.author.id))
+    await post_to_log(sid, f"🗑️ **Purge**\nChannel: <#{channel_id}>\nDeleted: {len(ids)} messages{target_note}\nMod: {ctx.author}")
+
+
+@bot.command(name="avatar")
+@is_admin()
+async def avatar(ctx: commands.Context, user_arg=""):
+    """Display a user's avatar. Accepts a mention or user ID, or no argument for yourself."""
+    if not user_arg:
+        user = ctx.author
+        uid  = str(user.id)
+    else:
+        uid = parse_user_id(user_arg)
+        if not uid:
+            return await ctx.send("❌ Invalid user — provide a mention or user ID.")
+        try:
+            user = await bot.fetch_user(uid)
+        except Exception:
+            return await ctx.send(f"❌ Could not find user with ID `{uid}`.")
+    avatar_id = getattr(user, "avatar", None)
+    if not avatar_id:
+        return await ctx.send(f"👤 **{user}** has no avatar set.")
+    avatar_url = f"{STOAT_CDN_URL}/avatars/{avatar_id}"
+    await ctx.send(f"🖼️ **{user}**'s avatar:\n{avatar_url}")
+
+
+@bot.command(name="lock")
+@is_admin()
+async def lock(ctx: commands.Context):
+    """Prevent @everyone from sending messages in this channel. (Admin only)"""
+    sid = get_server_id(ctx)
+    if sid == "DM":
+        return await ctx.send("❌ This command can only be used in a server.")
+    channel_id = ctx.message.channel_id
+    try:
+        await bot.state.http.set_default_channel_permissions(
+            channel_id,
+            stoat.PermissionOverride(deny=stoat.Permissions(send_messages=True)),
+        )
+    except Exception as e:
+        return await ctx.send(f"❌ Could not lock channel: {e}")
+    await ctx.send("🔒 Channel locked — @everyone cannot send messages.")
+    audit("lock", server_id=sid, user_id=str(ctx.author.id))
+    await post_to_log(sid, f"🔒 **Channel Locked**\nChannel: <#{channel_id}>\nMod: {ctx.author}")
+
+
+@bot.command(name="unlock")
+@is_admin()
+async def unlock(ctx: commands.Context):
+    """Restore @everyone send permissions in this channel. (Admin only)"""
+    sid = get_server_id(ctx)
+    if sid == "DM":
+        return await ctx.send("❌ This command can only be used in a server.")
+    channel_id = ctx.message.channel_id
+    try:
+        await bot.state.http.set_default_channel_permissions(
+            channel_id,
+            stoat.PermissionOverride(),
+        )
+    except Exception as e:
+        return await ctx.send(f"❌ Could not unlock channel: {e}")
+    await ctx.send("🔓 Channel unlocked — @everyone can send messages again.")
+    audit("unlock", server_id=sid, user_id=str(ctx.author.id))
+    await post_to_log(sid, f"🔓 **Channel Unlocked**\nChannel: <#{channel_id}>\nMod: {ctx.author}")
+
 
 @bot.command(name="set_log_channel")
 @is_admin()
