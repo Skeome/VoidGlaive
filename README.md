@@ -153,7 +153,7 @@ After the bot is running, use these commands to configure it per-server. Setting
 | `!unmute <member>` | Administrator | Remove the mute role |
 | `!purge <amount> [member]` | Administrator | Bulk-delete up to 100 messages |
 | `!lock` | Administrator | Block members from sending messages |
-| `!unlock` | Manage Channels | Restore member send permissions |
+| `!unlock` | Administrator | Restore member send permissions |
 | `!set_log_channel <channel>` | Administrator | Set the log channel |
 | `!set_autorole <role>` | Administrator | Set the auto-role on join |
 | `!set_mute_role <role>` | Administrator | Set the muted role |
