@@ -113,9 +113,9 @@ The `audit.log` in the data directory records all moderation actions (warn, kick
 
 | Variable | Required | Description |
 |---|---|---|
-| `STOAT_BOT_TOKEN` | Yes | Stoat | Bot token from your Stoat profile |
-| `STOAT_ADMIN_IDS` | Optional | Stoat | Comma-separated Stoat user IDs with admin access |
-| `BOT_PREFIX` | Optional | Both | Command prefix (default: `!`) |
+| `STOAT_BOT_TOKEN` | Yes | Bot token from your Stoat profile |
+| `STOAT_ADMIN_IDS` | Optional | Comma-separated Stoat user IDs with admin access |
+| `BOT_PREFIX` | Optional | Command prefix (default: `!`) |
 
 
 To get a User or Server ID, enable **Developer Mode** in your client settings, then right-click any user or server and select **Copy ID**.
