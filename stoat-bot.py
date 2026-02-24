@@ -39,11 +39,11 @@ CONFIG_FILE    = os.path.join(DATA_DIR, "config.json")
 # --- In-memory state (loaded from disk at startup) ---
 # ==============================================================================
 
-# { "guild_id:user_id": [ {reason, mod_tag, mod_id, timestamp}, ... ] }
+# { "server_id:user_id": [ {reason, mod_tag, mod_id, timestamp}, ... ] }
 warnings: Dict[str, List[Dict]] = {}
 
-# { "guild_id": { "log_channel_id": str, "mute_role_id": str, "autorole_id": str } }
-guild_cfg: Dict[str, Dict] = {}
+# { "server_id": { "log_channel_id": str, "mute_role_id": str, "autorole_id": str } }
+server_cfg: Dict[str, Dict] = {}
 
 
 # ==============================================================================
@@ -66,11 +66,11 @@ def _now() -> str:
     return datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
 
-def audit(action: str, guild_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
+def audit(action: str, server_id: Optional[str] = None, user_id: Optional[str] = None) -> None:
     """Writes a timestamped moderation entry to the audit log and stdout."""
     parts = [f"[{_now()}]", action]
-    if guild_id:
-        parts.append(f"guild:{guild_id}")
+    if server_id:
+        parts.append(f"server:{server_id}")
     if user_id:
         parts.append(f"user:{user_id}")
     line = "  ".join(parts)
@@ -100,18 +100,18 @@ def save_json(path: str, data: dict) -> None:
 
 
 def load_all() -> None:
-    global warnings, guild_cfg
-    warnings  = load_json(WARNINGS_FILE)
-    guild_cfg = load_json(CONFIG_FILE)
+    global warnings, server_cfg
+    warnings   = load_json(WARNINGS_FILE)
+    server_cfg = load_json(CONFIG_FILE)
 
 
-def warning_key(guild_id: str, user_id: str) -> str:
-    return f"{guild_id}:{user_id}"
+def warning_key(server_id: str, user_id: str) -> str:
+    return f"{server_id}:{user_id}"
 
 
-def cfg(guild_id: str) -> Dict:
-    """Returns the config dict for a guild, creating it if absent."""
-    return guild_cfg.setdefault(str(guild_id), {})
+def cfg(server_id: str) -> Dict:
+    """Returns the config dict for a server, creating it if absent."""
+    return server_cfg.setdefault(str(server_id), {})
 
 
 def is_admin():
@@ -121,9 +121,18 @@ def is_admin():
     return commands.check(predicate)
 
 
-def get_guild_id(ctx) -> str:
-    """Extracts guild ID from context via message."""
-    return str(ctx.message.guild_id) if ctx.message.guild_id else "DM"
+def parse_user_id(argument: str) -> Optional[str]:
+    """Extracts a user ID from a raw ID string or a <@ID> mention."""
+    argument = argument.strip()
+    if argument.startswith("<@") and argument.endswith(">"):
+        argument = argument[2:-1]
+    return argument if argument and argument.isalnum() else None
+
+
+def get_server_id(ctx) -> str:
+    """Extracts server ID from context via message. Returns 'DM' if not in a server."""
+    _, server_id = ctx.message.get_server()
+    return server_id if server_id else "DM"
 
 
 async def send_long_message(ctx, title: str, content: str) -> None:
@@ -140,9 +149,9 @@ async def send_long_message(ctx, title: str, content: str) -> None:
         await ctx.send(f"{prefix}{chunk}")
 
 
-async def post_to_log(guild_id: str, message: str) -> None:
+async def post_to_log(server_id: str, message: str) -> None:
     """Posts a plain-text message to the configured log channel if set."""
-    log_ch_id = cfg(guild_id).get("log_channel_id")
+    log_ch_id = cfg(server_id).get("log_channel_id")
     if not log_ch_id:
         return
     ch = bot.get_channel(log_ch_id)
@@ -166,12 +175,12 @@ class AdminBot(commands.Bot):
         print(f"   Prefix : {BOT_PREFIX}\n")
         audit(f"Bot online  tag={user_name}  id={user_id}")
 
-    async def on_member_join(self, event):
-        member   = event.member
-        guild_id = str(event.guild_id)
+    async def on_server_member_join(self, event):
+        member    = event.member
+        server_id = str(member.server_id)
 
         # Auto-role
-        role_id = cfg(guild_id).get("autorole_id")
+        role_id = cfg(server_id).get("autorole_id")
         if role_id:
             try:
                 await member.add_role(role_id)
@@ -179,37 +188,46 @@ class AdminBot(commands.Bot):
                 print(f"[WARN] Could not assign auto-role: {e}")
 
         await post_to_log(
-            guild_id,
+            server_id,
             f"📥 **Member Joined:** `{member.user}`  (ID: {member.user.id})"
         )
 
-    async def on_member_remove(self, event):
-        member = event.member
+    async def on_server_member_remove(self, event):
+        server_id = str(event.server_id)
+        user_id   = str(event.user_id)
+        member    = event.member
+        display   = f"`{member.user}`  (ID: {user_id})" if member else f"ID: {user_id}"
         await post_to_log(
-            str(event.guild_id),
-            f"📤 **Member Left:** `{member.user}`  (ID: {member.user.id})"
+            server_id,
+            f"📤 **Member Left:** {display}"
         )
 
     async def on_message_delete(self, event):
         message = event.message
-        if not message or not message.guild_id:
+        if not message:
+            return
+        _, server_id = message.get_server()
+        if not server_id:
             return
         content_preview = message.content[:500] if message.content else "*(no text content)*"
         await post_to_log(
-            str(message.guild_id),
-            f"🗑️ **Message Deleted** in <#{message.channel_id}> by {message.author.mention}\n"
+            server_id,
+            f"🗑️ **Message Deleted** in <#{event.channel_id}> by {message.author.mention}\n"
             f"```{content_preview}```"
         )
 
     async def on_message_update(self, event):
-        before = event.old_message
-        after  = event.message
-        if not before or not after or not after.guild_id:
+        before = event.before
+        after  = event.after
+        if not before or not after:
             return
         if before.content == after.content:
             return
+        _, server_id = after.get_server()
+        if not server_id:
+            return
         await post_to_log(
-            str(after.guild_id),
+            server_id,
             f"✏️ **Message Edited** in <#{after.channel_id}> by {after.author.mention}\n"
             f"**Before:** {before.content[:300]}\n"
             f"**After:** {after.content[:300]}"
@@ -257,13 +275,13 @@ async def show_help(ctx: commands.Context):
 `{BOT_PREFIX}userinfo [@member]` — User details
 
 **⚠️ Warnings**
-`{BOT_PREFIX}warn <@member> <reason>` — Warn a member
-`{BOT_PREFIX}warnings <@member>` — View a member's warnings
-`{BOT_PREFIX}clear_warnings <@member>` — Remove all warnings  *(Admin)*
+`{BOT_PREFIX}warn <@mention|ID> <reason>` — Warn a member
+`{BOT_PREFIX}warnings <@mention|ID>` — View a member's warnings
+`{BOT_PREFIX}clear_warnings <@mention|ID>` — Remove all warnings  *(Admin)*
 
 **🔨 Moderation**
-`{BOT_PREFIX}kick <@member> [reason]` — Kick a member
-`{BOT_PREFIX}ban <@member> [reason]` — Ban a member
+`{BOT_PREFIX}kick <@mention|ID> [reason]` — Kick a member
+`{BOT_PREFIX}ban <@mention|ID> [reason]` — Ban a member
 `{BOT_PREFIX}unban <user_id>` — Unban a user by ID
 
 **⚙️ Admin Config**  *(Admin only)*
@@ -294,16 +312,24 @@ async def botinfo(ctx: commands.Context):
 
 
 @bot.command(name="userinfo")
-async def userinfo(ctx: commands.Context, member: Optional[stoat.Member] = None):
-    """Display information about a member."""
-    gid    = get_guild_id(ctx)
-    user   = member.user if member else ctx.author
-    uid    = str(user.id)
-    wcount = len(warnings.get(warning_key(gid, uid), []))
+async def userinfo(ctx: commands.Context, user_arg=""):
+    """Display information about a user. Accepts a mention or user ID (or no argument for yourself)."""
+    sid = get_server_id(ctx)
+    if not user_arg:
+        user = ctx.author
+        uid  = str(user.id)
+    else:
+        uid = parse_user_id(user_arg)
+        if not uid:
+            return await ctx.send("❌ Invalid user — provide a mention or user ID.")
+        try:
+            user = await bot.fetch_user(uid)
+        except Exception:
+            return await ctx.send(f"❌ Could not find user with ID `{uid}`.")
+    wcount = len(warnings.get(warning_key(sid, uid), []))
     await ctx.send(
         f"👤 **{user}**\n"
         f"ID: `{uid}`\n"
-        f"Bot: {user.bot}\n"
         f"Warnings: {wcount}"
     )
 
@@ -314,14 +340,17 @@ async def userinfo(ctx: commands.Context, member: Optional[stoat.Member] = None)
 
 @bot.command(name="warn")
 @is_admin()
-async def warn(ctx: commands.Context, member: stoat.Member, *, reason: str):
-    """Issue a warning to a member."""
-    user = member.user
-    if user.bot:
-        return await ctx.send("❌ You cannot warn a bot.")
-    gid = get_guild_id(ctx)
-    uid = str(user.id)
-    key = warning_key(gid, uid)
+async def warn(ctx: commands.Context, user_arg, *, reason):
+    """Issue a warning to a member. Accepts a mention or user ID."""
+    uid = parse_user_id(user_arg)
+    if not uid:
+        return await ctx.send("❌ Invalid user — provide a mention or user ID.")
+    try:
+        user = await bot.fetch_user(uid)
+    except Exception:
+        return await ctx.send(f"❌ Could not find user with ID `{uid}`.")
+    sid = get_server_id(ctx)
+    key = warning_key(sid, uid)
     warnings.setdefault(key, []).append({
         "reason":    reason,
         "mod_id":    str(ctx.author.id),
@@ -340,20 +369,26 @@ async def warn(ctx: commands.Context, member: stoat.Member, *, reason: str):
         pass
 
     await ctx.send(f"⚠️ {user.mention} warned.  Reason: {reason}  (Total: {total})")
-    audit(f"warn  target={uid}  reason={reason!r}", guild_id=gid, user_id=str(ctx.author.id))
+    audit(f"warn  target={uid}  reason={reason!r}", server_id=sid, user_id=str(ctx.author.id))
     await post_to_log(
-        gid,
+        sid,
         f"⚠️ **Member Warned**\nMember: {user} (`{uid}`)\nMod: {ctx.author}\n"
         f"Reason: {reason}\nTotal warnings: {total}"
     )
 
 
 @bot.command(name="warnings")
-async def view_warnings(ctx: commands.Context, member: stoat.Member):
-    """View warnings for a member."""
-    user  = member.user
-    gid   = get_guild_id(ctx)
-    wlist = warnings.get(warning_key(gid, str(user.id)), [])
+async def view_warnings(ctx: commands.Context, user_arg):
+    """View warnings for a member. Accepts a mention or user ID."""
+    uid = parse_user_id(user_arg)
+    if not uid:
+        return await ctx.send("❌ Invalid user — provide a mention or user ID.")
+    try:
+        user = await bot.fetch_user(uid)
+    except Exception:
+        return await ctx.send(f"❌ Could not find user with ID `{uid}`.")
+    sid   = get_server_id(ctx)
+    wlist = warnings.get(warning_key(sid, uid), [])
     if not wlist:
         return await ctx.send(f"ℹ️ {user.mention} has no warnings.")
     lines = "\n".join(
@@ -365,18 +400,24 @@ async def view_warnings(ctx: commands.Context, member: stoat.Member):
 
 @bot.command(name="clear_warnings")
 @is_admin()
-async def clear_warnings(ctx: commands.Context, member: stoat.Member):
-    """Remove all warnings for a member. (Admin only)"""
-    user = member.user
-    gid  = get_guild_id(ctx)
-    key  = warning_key(gid, str(user.id))
+async def clear_warnings(ctx: commands.Context, user_arg):
+    """Remove all warnings for a member. Accepts a mention or user ID. (Admin only)"""
+    uid = parse_user_id(user_arg)
+    if not uid:
+        return await ctx.send("❌ Invalid user — provide a mention or user ID.")
+    try:
+        user = await bot.fetch_user(uid)
+    except Exception:
+        return await ctx.send(f"❌ Could not find user with ID `{uid}`.")
+    sid = get_server_id(ctx)
+    key = warning_key(sid, uid)
     if key in warnings:
         del warnings[key]
         save_json(WARNINGS_FILE, warnings)
         await ctx.send(f"✅ All warnings cleared for {user.mention}.")
     else:
         await ctx.send(f"ℹ️ {user.mention} has no warnings to clear.")
-    audit(f"clear_warnings  target={user.id}", guild_id=gid, user_id=str(ctx.author.id))
+    audit(f"clear_warnings  target={uid}", server_id=sid, user_id=str(ctx.author.id))
 
 
 # ==============================================================================
@@ -385,54 +426,72 @@ async def clear_warnings(ctx: commands.Context, member: stoat.Member):
 
 @bot.command(name="kick")
 @is_admin()
-async def kick(ctx: commands.Context, member: stoat.Member, *, reason: str = "No reason provided."):
-    """Kick a member from the server. (Admin only)"""
-    user = member.user
-    if user.id == ctx.author.id:
+async def kick(ctx: commands.Context, user_arg, *, reason="No reason provided."):
+    """Kick a member from the server. Accepts a mention or user ID. (Admin only)"""
+    uid = parse_user_id(user_arg)
+    if not uid:
+        return await ctx.send("❌ Invalid user — provide a mention or user ID.")
+    if uid == str(ctx.author.id):
         return await ctx.send("❌ You cannot kick yourself.")
+    sid = get_server_id(ctx)
+    if sid == "DM":
+        return await ctx.send("❌ This command can only be used in a server.")
     try:
-        await user.send(f"👢 You have been kicked.\nReason: {reason}")
+        server = await bot.fetch_server(sid)
+        member = await server.fetch_member(uid)
+    except Exception:
+        return await ctx.send(f"❌ Could not find member `{uid}` in this server.")
+    try:
+        await member.user.send(f"👢 You have been kicked.\nReason: {reason}")
     except Exception:
         pass
     try:
         await member.kick()
     except Exception:
         return await ctx.send("❌ I don't have permission to kick that member.")
-    gid = get_guild_id(ctx)
-    await ctx.send(f"👢 **{user}** has been kicked.  Reason: {reason}")
-    audit(f"kick  target={user.id}  reason={reason!r}", guild_id=gid, user_id=str(ctx.author.id))
-    await post_to_log(gid, f"👢 **Member Kicked**\nMember: {user}\nMod: {ctx.author}\nReason: {reason}")
+    await ctx.send(f"👢 **{member.user}** has been kicked.  Reason: {reason}")
+    audit(f"kick  target={uid}  reason={reason!r}", server_id=sid, user_id=str(ctx.author.id))
+    await post_to_log(sid, f"👢 **Member Kicked**\nMember: {member.user}\nMod: {ctx.author}\nReason: {reason}")
 
 
 @bot.command(name="ban")
 @is_admin()
-async def ban(ctx: commands.Context, member: stoat.Member, *, reason: str = "No reason provided."):
-    """Ban a member from the server. (Admin only)"""
-    user = member.user
-    if user.id == ctx.author.id:
+async def ban(ctx: commands.Context, user_arg, *, reason="No reason provided."):
+    """Ban a member from the server. Accepts a mention or user ID. (Admin only)"""
+    uid = parse_user_id(user_arg)
+    if not uid:
+        return await ctx.send("❌ Invalid user — provide a mention or user ID.")
+    if uid == str(ctx.author.id):
         return await ctx.send("❌ You cannot ban yourself.")
+    sid = get_server_id(ctx)
+    if sid == "DM":
+        return await ctx.send("❌ This command can only be used in a server.")
     try:
-        await user.send(f"🔨 You have been banned.\nReason: {reason}")
+        server = await bot.fetch_server(sid)
+        member = await server.fetch_member(uid)
+    except Exception:
+        return await ctx.send(f"❌ Could not find member `{uid}` in this server.")
+    try:
+        await member.user.send(f"🔨 You have been banned.\nReason: {reason}")
     except Exception:
         pass
     try:
         await member.ban()
     except Exception:
         return await ctx.send("❌ I don't have permission to ban that member.")
-    gid = get_guild_id(ctx)
-    await ctx.send(f"🔨 **{user}** has been banned.  Reason: {reason}")
-    audit(f"ban  target={user.id}  reason={reason!r}", guild_id=gid, user_id=str(ctx.author.id))
-    await post_to_log(gid, f"🔨 **Member Banned**\nMember: {user}\nMod: {ctx.author}\nReason: {reason}")
+    await ctx.send(f"🔨 **{member.user}** has been banned.  Reason: {reason}")
+    audit(f"ban  target={uid}  reason={reason!r}", server_id=sid, user_id=str(ctx.author.id))
+    await post_to_log(sid, f"🔨 **Member Banned**\nMember: {member.user}\nMod: {ctx.author}\nReason: {reason}")
 
 
 @bot.command(name="unban")
 @is_admin()
-async def unban(ctx: commands.Context, user_id: str):
+async def unban(ctx: commands.Context, user_id):
     """Unban a user by their ID. (Admin only)"""
-    gid = get_guild_id(ctx)
+    gid = get_server_id(ctx)
     try:
         await ctx.send(f"✅ Unban request sent for user `{user_id}`.")
-        audit(f"unban  target={user_id}", guild_id=gid, user_id=str(ctx.author.id))
+        audit(f"unban  target={user_id}", server_id=gid, user_id=str(ctx.author.id))
     except Exception as e:
         await ctx.send(f"❌ Could not process unban: {e}")
 
@@ -443,51 +502,51 @@ async def unban(ctx: commands.Context, user_id: str):
 
 @bot.command(name="set_log_channel")
 @is_admin()
-async def set_log_channel(ctx: commands.Context, channel_id: str):
+async def set_log_channel(ctx: commands.Context, channel_id):
     """Set the channel where bot events are logged. (Admin only)
     Usage: !set_log_channel <channel_id>"""
-    gid = get_guild_id(ctx)
+    gid = get_server_id(ctx)
     cfg(gid)["log_channel_id"] = channel_id
-    save_json(CONFIG_FILE, guild_cfg)
+    save_json(CONFIG_FILE, server_cfg)
     await ctx.send(f"✅ Log channel set to `{channel_id}`.")
-    audit(f"set_log_channel  channel={channel_id}", guild_id=gid, user_id=str(ctx.author.id))
+    audit(f"set_log_channel  channel={channel_id}", server_id=gid, user_id=str(ctx.author.id))
 
 
 @bot.command(name="set_autorole")
 @is_admin()
-async def set_autorole(ctx: commands.Context, role_id: str):
+async def set_autorole(ctx: commands.Context, role_id):
     """Set the role automatically given to new members. (Admin only)
     Usage: !set_autorole <role_id>"""
-    gid = get_guild_id(ctx)
+    gid = get_server_id(ctx)
     cfg(gid)["autorole_id"] = role_id
-    save_json(CONFIG_FILE, guild_cfg)
+    save_json(CONFIG_FILE, server_cfg)
     await ctx.send(f"✅ Auto-role set to `{role_id}`.")
-    audit(f"set_autorole  role={role_id}", guild_id=gid, user_id=str(ctx.author.id))
+    audit(f"set_autorole  role={role_id}", server_id=gid, user_id=str(ctx.author.id))
 
 
 @bot.command(name="set_mute_role")
 @is_admin()
-async def set_mute_role(ctx: commands.Context, role_id: str):
+async def set_mute_role(ctx: commands.Context, role_id):
     """Set the role used for muting. (Admin only)
     Usage: !set_mute_role <role_id>"""
-    gid = get_guild_id(ctx)
+    gid = get_server_id(ctx)
     cfg(gid)["mute_role_id"] = role_id
-    save_json(CONFIG_FILE, guild_cfg)
+    save_json(CONFIG_FILE, server_cfg)
     await ctx.send(f"✅ Mute role set to `{role_id}`.")
-    audit(f"set_mute_role  role={role_id}", guild_id=gid, user_id=str(ctx.author.id))
+    audit(f"set_mute_role  role={role_id}", server_id=gid, user_id=str(ctx.author.id))
 
 
 @bot.command(name="status")
 @is_admin()
 async def status(ctx: commands.Context):
     """Show bot status and statistics. (Admin only)"""
-    total_warnings    = sum(len(v) for v in warnings.values())
-    guilds_configured = len(guild_cfg)
+    total_warnings     = sum(len(v) for v in warnings.values())
+    servers_configured = len(server_cfg)
     await ctx.send(
         f"**📊 Bot Status**\n"
         f"Prefix: `{BOT_PREFIX}`\n"
         f"Total warnings on record: {total_warnings}\n"
-        f"Guilds with config: {guilds_configured}\n"
+        f"Servers with config: {servers_configured}\n"
         f"Admin IDs loaded: {len(ADMIN_USER_IDS)}\n"
         f"Data directory: `{DATA_DIR}/`"
     )
@@ -497,9 +556,9 @@ async def status(ctx: commands.Context):
 @is_admin()
 async def shutdown(ctx: commands.Context):
     """Shut down the bot. (Admin only)"""
-    gid = get_guild_id(ctx)
+    gid = get_server_id(ctx)
     await ctx.send("🔴 Shutting down...")
-    audit("admin_shutdown", guild_id=gid, user_id=str(ctx.author.id))
+    audit("admin_shutdown", server_id=gid, user_id=str(ctx.author.id))
     await bot.close()
     await asyncio.sleep(1)
     sys.exit(0)
