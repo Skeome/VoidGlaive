@@ -164,7 +164,9 @@ After the bot is running, use these commands to configure it per-server. Setting
 
 ## Required Bot Permissions
 
-When inviting either bot to a server, grant the following permissions:
+When inviting the bot to a server, grant the following permissions:
+
+**Update:** Permissions must be set per channel for `lock` and `unlock`. (only the channels you want locked need these permissions set to true. Server overrides do not affect channel perms)
 
 - Manage Roles
 - Kick Members
