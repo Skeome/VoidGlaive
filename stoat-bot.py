@@ -277,10 +277,10 @@ async def show_help(ctx: commands.Context):
 `{BOT_PREFIX}help` — This message
 `{BOT_PREFIX}ping` — Bot latency
 `{BOT_PREFIX}botinfo` — Bot statistics
-`{BOT_PREFIX}userinfo [@member]` — User details
+`{BOT_PREFIX}userinfo [@mention]` — User details
 `{BOT_PREFIX}serverinfo` — Server details
 `{BOT_PREFIX}roleinfo <role name>` — Role details
-`{BOT_PREFIX}avatar [@member]` — Display a user's avatar
+`{BOT_PREFIX}avatar [@mention]` — Display a user's avatar
 
 **⚠️ Warnings**
 `{BOT_PREFIX}warn <@mention|ID> <reason>` — Warn a member
@@ -295,7 +295,7 @@ async def show_help(ctx: commands.Context):
 `{BOT_PREFIX}unmute <@mention|ID>` — Remove the mute role
 
 **🔧 Channel Management**  *(Admin only)*
-`{BOT_PREFIX}purge <amount> [@member]` — Bulk-delete up to 100 messages (optionally filter by member)
+`{BOT_PREFIX}purge <amount> [@mention | ID]` — Bulk-delete up to 100 messages (optionally filter by member)
 `{BOT_PREFIX}lock` — Block member from sending messages (based on autorole)
 `{BOT_PREFIX}unlock` — Restore member send permissions (based on autorole)
 
