@@ -17,9 +17,9 @@ load_dotenv()
 # --- Configuration ---
 # ==============================================================================
 
-BOT_TOKEN  = os.getenv("STOAT_BOT_TOKEN")
-BOT_PREFIX    = os.getenv("BOT_PREFIX", "!")
-STOAT_CDN_URL = "https://cdn.stoatusercontent.com"
+BOT_TOKEN      = os.getenv("STOAT_BOT_TOKEN")
+BOT_PREFIX     = os.getenv("BOT_PREFIX", "!")
+STOAT_CDN_URL  = "https://cdn.stoatusercontent.com"
 
 # Comma-separated Stoat User IDs with elevated bot-level admin access
 admin_ids_str  = os.getenv("STOAT_ADMIN_IDS", "")
@@ -296,8 +296,8 @@ async def show_help(ctx: commands.Context):
 
 **🔧 Channel Management**  *(Admin only)*
 `{BOT_PREFIX}purge <amount> [@member]` — Bulk-delete up to 100 messages (optionally filter by member)
-`{BOT_PREFIX}lock` — Block @everyone from sending messages
-`{BOT_PREFIX}unlock` — Restore @everyone send permissions
+`{BOT_PREFIX}lock` — Block member from sending messages (based on autorole)
+`{BOT_PREFIX}unlock` — Restore member send permissions (based on autorole)
 
 **⚙️ Admin Config**  *(Admin only)*
 `{BOT_PREFIX}set_log_channel <channel_id>` — Set the log channel
@@ -726,29 +726,32 @@ async def avatar(ctx: commands.Context, user_arg=""):
             user = await bot.fetch_user(uid)
         except Exception:
             return await ctx.send(f"❌ Could not find user with ID `{uid}`.")
-    avatar_id = getattr(user, "avatar", None)
-    if not avatar_id:
+    avatar_asset = getattr(user, "avatar", None)
+    if not avatar_asset:
         return await ctx.send(f"👤 **{user}** has no avatar set.")
-    avatar_url = f"{STOAT_CDN_URL}/avatars/{avatar_id}"
+    avatar_url = f"{STOAT_CDN_URL}/avatars/{avatar_asset.id}"
     await ctx.send(f"🖼️ **{user}**'s avatar:\n{avatar_url}")
 
 
 @bot.command(name="lock")
 @is_admin()
 async def lock(ctx: commands.Context):
-    """Prevent @everyone from sending messages in this channel. (Admin only)"""
+    """Prevent members from sending messages in this channel. (Admin only)"""
     sid = get_server_id(ctx)
     if sid == "DM":
         return await ctx.send("❌ This command can only be used in a server.")
-    channel_id = ctx.message.channel_id
+    channel_id  = ctx.message.channel_id
+    autorole_id = cfg(sid).get("autorole_id")
+    if not autorole_id:
+        return await ctx.send("❌ No autorole configured. Use `set_autorole` first.")
     try:
-        await bot.state.http.set_default_channel_permissions(
-            channel_id,
-            stoat.PermissionOverride(deny=stoat.Permissions(send_messages=True)),
+        await bot.state.http.set_channel_permissions_for_role(
+            channel_id, autorole_id,
+            deny=stoat.Permissions(send_messages=True),
         )
     except Exception as e:
         return await ctx.send(f"❌ Could not lock channel: {e}")
-    await ctx.send("🔒 Channel locked — @everyone cannot send messages.")
+    await ctx.send("🔒 Channel locked — Members cannot send messages.")
     audit("lock", server_id=sid, user_id=str(ctx.author.id))
     await post_to_log(sid, f"🔒 **Channel Locked**\nChannel: <#{channel_id}>\nMod: {ctx.author}")
 
@@ -756,19 +759,22 @@ async def lock(ctx: commands.Context):
 @bot.command(name="unlock")
 @is_admin()
 async def unlock(ctx: commands.Context):
-    """Restore @everyone send permissions in this channel. (Admin only)"""
+    """Restore member send permissions in this channel. (Admin only)"""
     sid = get_server_id(ctx)
     if sid == "DM":
         return await ctx.send("❌ This command can only be used in a server.")
-    channel_id = ctx.message.channel_id
+    channel_id  = ctx.message.channel_id
+    autorole_id = cfg(sid).get("autorole_id")
+    if not autorole_id:
+        return await ctx.send("❌ No autorole configured. Use `set_autorole` first.")
     try:
-        await bot.state.http.set_default_channel_permissions(
-            channel_id,
-            stoat.PermissionOverride(),
+        await bot.state.http.set_channel_permissions_for_role(
+            channel_id, autorole_id,
+            allow=stoat.Permissions(), deny=stoat.Permissions(),
         )
     except Exception as e:
         return await ctx.send(f"❌ Could not unlock channel: {e}")
-    await ctx.send("🔓 Channel unlocked — @everyone can send messages again.")
+    await ctx.send("🔓 Channel unlocked — Members can send messages again.")
     audit("unlock", server_id=sid, user_id=str(ctx.author.id))
     await post_to_log(sid, f"🔓 **Channel Unlocked**\nChannel: <#{channel_id}>\nMod: {ctx.author}")
 
