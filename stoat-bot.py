@@ -290,7 +290,7 @@ async def show_help(ctx: commands.Context):
 **🔨 Moderation**
 `{BOT_PREFIX}kick <@mention|ID> [reason]` — Kick a member
 `{BOT_PREFIX}ban <@mention|ID> [reason]` — Ban a member
-`{BOT_PREFIX}unban <@mention|ID>` — Unban a user by ID
+`{BOT_PREFIX}unban <ID>` — Unban a user by ID
 `{BOT_PREFIX}mute <@mention|ID> [reason]` — Apply the mute role
 `{BOT_PREFIX}unmute <@mention|ID>` — Remove the mute role
 
